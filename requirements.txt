@@ -1,0 +1,8 @@
+smartapi-python
+pyotp
+python-dotenv
+logzero
+websocket-client
+google-generativeai
+schedule
+openpyxl
