@@ -45,6 +45,7 @@ A:\Project\Tr\
 │   ├── options_chain.py        ← NIFTY/BANKNIFTY/Crude options chain viewer
 │   ├── crude_oil_tracker.py    ← MCX crude vs NYMEX WTI + USD/INR + AI call
 │   ├── mf_tracker.py           ← Mutual fund P&L via AMFI NAV + Gemini AI
+│   ├── backtester.py           ← 🧪 Strategy backtests (MA crossover, breakout) with costs
 │   ├── day_guard.py            ← 🔒 Live daily limits (3 trades / 2 losses / ₹1,500 / day called)
 │   ├── quick_check.py          ← ⚡ Fast one-shot market check (crude/nifty/banknifty…, ~5 s)
 │   ├── trade_alert.py          ← Candle-close breakout + open-position SL/target alerts
@@ -273,7 +274,19 @@ python bots/quick_check.py nifty             # NIFTY (NFO)
 python bots/quick_check.py banknifty --strikes 3 --candles 10
 ```
 Instruments: `crude` · `crudem`/`mini` · `ng` · `ngm` · `nifty` · `banknifty`/`bnf` · `finnifty` · `midcpnifty`.
-Lot sizes and expiries come from the instrument master automatically. After the market closes (3:30 PM for NFO, 11:30 PM for MCX), the next expiry is used.
+Lot sizes and expiries come from the instrument master every day, never hardcoded. An expiry rolls after that day's close (3:30 PM NFO; MCX 11:30 PM in US summer, 11:55 PM in US winter). MCX options are shown with the future they are priced on (next month's future once the options have expired), NIFTY/BANKNIFTY ATM is centred on spot, and the ATM is cross-checked from the options' own prices. Expiry and roll warnings print as ⚠️ lines; EMA20 and the trend read use closed candles with history from earlier sessions.
+
+### 🧪 Backtester
+Tests intraday strategies on Angel 5m futures history, including costs, slippage and the daily rules. Data is cached in `.cache/`, so re-runs take seconds.
+```bash
+python bots/backtester.py                       # compare 10 preset strategies, last 120 days
+python bots/backtester.py --days 150 --mini --monthly
+python bots/backtester.py --strategy ma --fast 20 --slow 50 --filter ema200 --mini --trades
+python bots/backtester.py --strategy breakout --lookback 24 --vol-mult 1.5 --stop 25 --rr 2
+python bots/backtester.py --no-rules --slip 3   # stress tests
+```
+Reports trades, win %, net ₹, profit factor, expectancy, max drawdown, losing streak, % green days, worst day, and per-month P&L.
+Fills happen at the next candle's open. If a stop and a target are hit in the same candle, the stop wins. Positions are flat at day end.
 
 ### 🔒 Day Guard (daily risk limits)
 Computed live from today's Angel trade book, across all instruments. `quick_check.py` prints it on every run, so `/check`, `/trade` and `/watch` respect it.
@@ -322,6 +335,7 @@ Each daily page (`journal/daily/YYYY-MM-DD.md`) starts with a **Day Summary**:
 - **Charges breakdown:** brokerage, exchange charges, CTT, stamp duty, SEBI fees and GST.
 - **Activity:** trades and win rate, units traded, turnover, largest capital used in one trade, and best and worst trade.
 - **Running totals:** month to date and all time.
+- **Expiry day:** whether contracts you traded expired that day, and when the next expiry is.
 
 Below that come the trades table and per-trade notes. Your own notes (market context, what went well, what to improve, plan) are kept on every re-sync.
 Charges are estimates until you enter contract-note figures with `--charges`.
@@ -355,7 +369,7 @@ None of the commands place orders. Orders are placed by hand in the Angel app (s
 
 ### Typical crude evening session
 ```
-/plan                 → levels and setups (before 8 PM; EIA report on Wednesday at about 8:30 PM)
+/plan                 → levels and setups (before 8 PM; EIA report on Wednesday at 9 PM in US winter, 8 PM in US summer)
 /watch                → set breakout alerts, close the chart, wait for the beep
 /check                → when an alert fires (or occasionally)
 /trade                → when looking for an entry
@@ -602,5 +616,5 @@ Run `python lib_manager.py` → `[1]` to check current status at any time.
 - [ ] Schedule `scheduler.py` via Windows Task Scheduler to auto-start on boot
 - [ ] Get a static IP (ISP add-on or cloud VPS) and register it in SmartAPI, so API orders work
 - [ ] Live terminal dashboard (WebSocket feed, refreshes every second)
-- [ ] Add historical backtester bot
+- [x] Add historical backtester bot (MA crossover + breakout, costs, daily rules)
 - [ ] Add Gold / Silver tracker (MCX)

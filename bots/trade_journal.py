@@ -340,6 +340,67 @@ def cmd_stats(month, by_setup=False):
         print(f"  {d}  {len(by_day[d])} trade(s)  net ₹{sum(by_day[d]):+,.0f}   cumulative ₹{running:+,.0f}")
 
 
+_SYM_RE = __import__("re").compile(r"^([A-Z]+?)(\d{2}[A-Z]{3}\d{2})(?:\d+(?:CE|PE)|FUT)$")
+
+
+def _sym_parts(symbol):
+    """'CRUDEOIL17NOV268050PE' → ('CRUDEOIL', date(2026, 11, 17)); None if not parseable."""
+    m = _SYM_RE.match(symbol or "")
+    if not m:
+        return None
+    try:
+        return m.group(1), datetime.strptime(m.group(2), "%d%b%y").date()
+    except ValueError:
+        return None
+
+
+def expiry_info(date, rows):
+    """Is `date` an expiry day for the instruments traded (default CRUDEOIL)? Returns markdown lines."""
+    import json
+    d = datetime.strptime(date, "%Y-%m-%d").date()
+    names = sorted({p[0] for p in (_sym_parts(r["symbol"]) for r in rows) if p}) or ["CRUDEOIL"]
+    # expiries known from the traded symbols themselves (works for past dates)
+    known = defaultdict(set)
+    for r in rows:
+        p = _sym_parts(r["symbol"])
+        if p:
+            kind = "FUT" if r["symbol"].endswith("FUT") else "options"
+            known[(p[0], kind)].add(p[1])
+    # plus the instrument cache built by quick_check.py (live contracts)
+    cache = os.path.join(BASE_DIR, ".cache", "instruments.json")
+    try:
+        with open(cache, encoding="utf-8") as f:
+            for m in json.load(f)["rows"]:
+                if m["name"] in names and m.get("expiry"):     # spot-index rows have no expiry
+                    kind = "FUT" if m["type"].startswith("FUT") else "options"
+                    known[(m["name"], kind)].add(datetime.strptime(m["expiry"], "%d%b%Y").date())
+    except (OSError, ValueError, KeyError):
+        pass
+    today_hits, upcoming = [], []
+    for name in names:
+        for kind in ("options", "FUT"):
+            dates = sorted(known.get((name, kind), ()))
+            if d in dates:
+                today_hits.append(f"{name} {kind}")
+            nxt = next((x for x in dates if x > d), None)
+            if nxt:
+                upcoming.append(f"{name} {kind} {nxt:%d %b} (in {(nxt - d).days} d)")
+    expiring_trades = sum(1 for r in rows if (_sym_parts(r["symbol"]) or (None, None))[1] == d)
+    if today_hits:
+        line = f"**📅 Expiry day: YES**: {', '.join(today_hits)} expire today"
+        if expiring_trades:
+            line += f" · {expiring_trades} of {len(rows)} trades were in contracts expiring today (fast time decay)"
+    else:
+        line = "**📅 Expiry day: No**"
+    if upcoming:
+        line += f" · next: {', '.join(upcoming[:3])}"
+    return [line, ""]
+
+
+def is_expiry_day(date, rows):
+    return any("YES" in l for l in expiry_info(date, rows))
+
+
 def _day_summary(date, rows, all_rows):
     """Markdown block: P&L, charges breakdown, turnover, running totals."""
     gross = sum(float(r["gross_pnl"]) for r in rows)
@@ -366,7 +427,7 @@ def _day_summary(date, rows, all_rows):
     verdict = "🟢 PROFIT" if net > 0 else ("🔴 LOSS" if net < 0 else "⚪ FLAT")
     pct = f"{charges / gross_profit * 100:.0f}% of gross profit" if gross_profit else "—"
     L = ["## Day Summary", "",
-         f"### {verdict}: Net ₹{net:+,.2f}", "",
+         f"### {verdict}: Net ₹{net:+,.2f}", ""] + expiry_info(date, rows) + [
          "| P&L | Amount |", "|---|---:|",
          f"| Gross profit (winning trades) | ₹{gross_profit:+,.2f} |",
          f"| Gross loss (losing trades) | ₹{gross_loss:+,.2f} |",
@@ -383,6 +444,7 @@ def _day_summary(date, rows, all_rows):
          f"| GST (18%) | ₹{bd['gst']:,.2f} |",
          f"| **Total** | **₹{sum(bd.values()):,.2f}** |", "",
          "| Activity | Value |", "|---|---:|",
+         f"| Expiry day | {'Yes' if is_expiry_day(date, rows) else 'No'} |",
          f"| Trades (wins / losses) | {len(rows)} ({wins} / {len(rows) - wins}) |",
          f"| Win rate | {wins / len(rows) * 100:.0f}% |",
          f"| Units traded | {sum(int(float(r['qty'])) for r in rows):,} |",

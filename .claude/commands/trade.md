@@ -23,3 +23,10 @@ The snapshot's first line shows the instrument and exchange, e.g. `[CRUDEOIL · 
    - ⚠️ Skip-if: a fail level and a don't-chase price.
    - ✅ Checklist: 1 lot · LIMIT · SL placed right after the fill.
 4. **Wording:** never say "buy now at market". Never place orders: the user places them in the Angel app (the API IP isn't whitelisted).
+
+**Contracts and expiries (from the snapshot, never from memory):**
+- Use the fut and options named on the `Contracts:` line. For MCX that fut is the one the options are priced on; for NIFTY/BANKNIFTY the ATM is centred on spot.
+- A future marked "not used" on a ⚠️ line is a different contract: don't take levels, trend or prices from it.
+- Mention every ⚠️ line (expiry today/tomorrow, roll, options-vs-fut mismatch, stale data) in the reply.
+- Take the session close and the EIA time from the `Session:` line.
+- The `Trend (closed 5m, last 6):` line is the rule-based read on closed candles; base 📈 Trend on it.

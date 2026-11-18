@@ -5,7 +5,7 @@ allowed-tools: Bash(python bots/quick_check.py:*), Bash(python bots/trade_alert.
 ---
 Live market snapshot (already fetched, don't re-run unless it failed):
 
-!`python bots/quick_check.py --candles 6 $ARGUMENTS 2>&1 | grep -v "smartConnect\|in pool"`
+!`python bots/quick_check.py --candles 12 $ARGUMENTS 2>&1 | grep -v "smartConnect\|in pool"`
 
 The first line of the snapshot shows the instrument and exchange, e.g. `[NIFTY · NFO]`. If no instrument was given, it's CRUDEOIL (MCX), which is the user's main market. Analyse that instrument and reply in the decorated, detailed check format:
 - **Header:** `## <emoji> <TYPE> · <INSTRUMENT>: <short read>`, e.g. `## 🟡 WAIT · CRUDEOIL: chop above support`. TYPE is one of: WAIT, BUY SIGNAL, IN TRADE, TARGET HIT, WARNING, STOPPED OUT, RULE CHECK.
@@ -31,3 +31,10 @@ The first line of the snapshot shows the instrument and exchange, e.g. `[NIFTY �
   - 🟡 PROTECT → the day is green, so A+ setups only, and say so.
   - Use its trades, losses and net figures for the 📒 Day line.
 - Keep it compact.
+
+**Contracts and expiries (from the snapshot, never from memory):**
+- Use the fut and options named on the `Contracts:` line. For MCX that fut is the one the options are priced on; for NIFTY/BANKNIFTY the ATM is centred on spot.
+- A future marked "not used" on a ⚠️ line is a different contract: don't take levels, trend or prices from it.
+- Mention every ⚠️ line (expiry today/tomorrow, roll, options-vs-fut mismatch, stale data) in the reply.
+- Take the session close and the EIA time from the `Session:` line.
+- The `Trend (closed 5m, last 6):` line is the rule-based read on closed candles; base 📈 Trend on it.

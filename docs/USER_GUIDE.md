@@ -30,7 +30,7 @@ The evening runs on six commands: plan once, set alerts, wait for the beep, then
 /plan → /watch → (wait for the beep) → /check → /bought … → /check → /eod
 ```
 
-- **EIA Wednesdays:** the US inventory report lands at about 8:30 PM IST. Have nothing open into it. Run `/watch` after the release and trade the first clean 5-minute close.
+- **EIA Wednesdays:** the US inventory report lands at 9:00 PM IST in US winter (Nov–Mar) and 8:00 PM IST in US summer; `quick_check.py` prints the current time on its Session line. Have nothing open into it. Run `/watch` after the release and trade the first clean 5-minute close.
 - **Expiry nights:** after about 9:30 PM, expiring options lose value too fast for buyers. Stop by 9:30 PM, or use the future or next month's options.
 
 ---
@@ -107,6 +107,7 @@ Each `journal/daily/YYYY-MM-DD.md` page starts with a **Day Summary**:
 - **Charges breakdown:** brokerage, exchange charges, CTT, stamp duty, SEBI fees and GST.
 - **Activity:** trades and win rate, units traded, turnover, largest capital used in one trade, and best and worst trade.
 - **Running totals:** month to date and all time.
+- **Expiry day:** whether contracts you traded expired that day, and when the next expiry is.
 
 Your own notes are kept on every re-sync: market context, what went well, what to improve, and the plan for the next session. Charges are estimates until you enter the real figures from the contract note with `--charges`.
 
@@ -130,6 +131,27 @@ Your own notes are kept on every re-sync: market context, what went well, what t
 | chase | 2 | 0% | −₹1,638 |
 
 Treat these as early signals until each setup has 10 or more trades.
+
+---
+
+### Backtester
+
+```bash
+python bots/backtester.py --days 150 --mini --monthly                     # compare presets
+python bots/backtester.py --strategy ma --fast 20 --slow 50 --filter ema200 --mini --trades
+```
+
+**First results** (Crude Mini, 22 Jun – 17 Nov 2026, 107 days, costs and 1-point slippage included):
+
+| Strategy | Trades | Win % | Net | Max drawdown |
+|---|---|---|---|---|
+| EMA 20/50 + EMA200 filter | 138 | 38% | +₹23,883 | −₹6,744 |
+| EMA 25/60 + EMA200 filter | 122 | 35% | +₹13,009 | −₹7,306 |
+| EMA 15/40 + EMA200 filter | 152 | 34% | +₹5,380 | −₹9,601 |
+| EMA 9/21 (no filter, standard lot ÷ 10) | 253 | 29% | about −₹3,000 | about −₹11,600 |
+| Mechanical breakout presets | 270–280 | 33–43% | all negative | — |
+
+Before trading any of these, paper-trade for 2 weeks. July was negative for every strategy.
 
 ---
 
@@ -228,5 +250,5 @@ To fix it permanently, either:
 
 - [ ] Static IP, so API orders and stops work
 - [ ] Live terminal dashboard (WebSocket feed, refreshes every second)
-- [ ] Backtester for the breakout setup
+- [x] Backtester (`bots/backtester.py`)
 - [ ] Contract note import, for real charges

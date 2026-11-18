@@ -23,3 +23,10 @@ Current state:
    - **⚠️ If no stop order is pending, put this first, in bold:** "Place SL now: SELL <qty> <SYM> SL-LIMIT trigger ₹X / limit ₹X-1".
    - The table: stop / T1 / T2 / fut / exit-by.
    - What to do at T1: book it, or trail the stop to entry.
+
+**Contracts and expiries (from the snapshot, never from memory):**
+- Use the fut and options named on the `Contracts:` line. For MCX that fut is the one the options are priced on; for NIFTY/BANKNIFTY the ATM is centred on spot.
+- A future marked "not used" on a ⚠️ line is a different contract: don't take levels, trend or prices from it.
+- Mention every ⚠️ line (expiry today/tomorrow, roll, options-vs-fut mismatch, stale data) in the reply.
+- Take the session close and the EIA time from the `Session:` line.
+- The `Trend (closed 5m, last 6):` line is the rule-based read on closed candles; base 📈 Trend on it.

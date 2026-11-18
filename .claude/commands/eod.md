@@ -20,7 +20,7 @@ Journal sync (Excel must be closed):
    - Market context (key levels and moves, with times).
    - What went well.
    - What to improve: rule breaks such as MARKET orders, size, a missing SL, overtrading, chasing.
-   - Plan for the next session: levels, events such as the EIA report on Wednesday at about 8:30 PM IST, instruments.
+   - Plan for the next session: levels, events such as the EIA report on Wednesday (time from the snapshot's Session line: 9:00 PM IST in US winter, 8:00 PM in US summer), instruments.
 5. **Re-run** `python bots/trade_journal.py sync`, then `python bots/trade_journal.py stats` and `python bots/trade_journal.py stats --by-setup`.
 6. **Reply in the 🌙 DAY CLOSED format:**
    - Trades table with times.
