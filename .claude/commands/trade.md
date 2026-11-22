@@ -29,4 +29,6 @@ The snapshot's first line shows the instrument and exchange, e.g. `[CRUDEOIL · 
 - A future marked "not used" on a ⚠️ line is a different contract: don't take levels, trend or prices from it.
 - Mention every ⚠️ line (expiry today/tomorrow, roll, options-vs-fut mismatch, stale data) in the reply.
 - Take the session close and the EIA time from the `Session:` line.
-- The `Trend (closed 5m, last 6):` line is the rule-based read on closed candles; base 📈 Trend on it.
+- **Read top-down, like a multi-timeframe check:** the `Trend` table gives 1H, 30m and 5m (closed candles). Take the bias from 1H/30m and the timing from 5m. If 5m goes against 1H/30m, call it a pullback or counter-trend and say so. Use the 1H and 30m candles for swing levels.
+- **OI levels:** the `OI` line gives the strikes with the most CE OI (resistance) and PE OI (support), plus PCR and the most traded strike. Put them in the 🧱 levels table next to the candle levels.
+- Keep the reply in the usual decorated format; don't paste the raw tables.

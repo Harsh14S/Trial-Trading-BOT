@@ -274,7 +274,7 @@ python bots/quick_check.py nifty             # NIFTY (NFO)
 python bots/quick_check.py banknifty --strikes 3 --candles 10
 ```
 Instruments: `crude` · `crudem`/`mini` · `ng` · `ngm` · `nifty` · `banknifty`/`bnf` · `finnifty` · `midcpnifty`.
-Lot sizes and expiries come from the instrument master every day, never hardcoded. An expiry rolls after that day's close (3:30 PM NFO; MCX 11:30 PM in US summer, 11:55 PM in US winter). MCX options are shown with the future they are priced on (next month's future once the options have expired), NIFTY/BANKNIFTY ATM is centred on spot, and the ATM is cross-checked from the options' own prices. Expiry and roll warnings print as ⚠️ lines; EMA20 and the trend read use closed candles with history from earlier sessions.
+Lot sizes and expiries come from the instrument master every day, never hardcoded. An expiry rolls after that day's close (3:30 PM NFO; MCX 11:30 PM in US summer, 11:55 PM in US winter). MCX options are shown with the future they are priced on (next month's future once the options have expired), NIFTY/BANKNIFTY ATM is centred on spot, and the ATM is cross-checked from the options' own prices. Expiry and roll warnings print as ⚠️ lines; The trend table covers 1H, 30m and 5m (built from 5 days of 5m candles, closed candles only, identical to Angel's own 30m/1H bars), and the option chain shows OI, with the top CE/PE OI strikes, PCR and the most traded strike, from ±8 strikes. Still one candle call and one quote call, about 3–4 s.
 
 ### 🧪 Backtester
 Tests intraday strategies on Angel 5m futures history, including costs, slippage and the daily rules. Data is cached in `.cache/`, so re-runs take seconds.

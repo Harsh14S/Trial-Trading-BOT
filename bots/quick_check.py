@@ -194,14 +194,44 @@ def synthetic(strikes, chain, q, ref):
     return None, None
 
 
+
+
+def resample(cs, minutes):
+    """Build higher-timeframe candles from 5m ones, anchored at each session's first candle
+    (MCX 09:00, NFO 09:15), the same way Angel aligns its 30m/1H bars."""
+    starts, out = {}, []
+    for c in cs:
+        day_start = starts.setdefault(c["ts"].date(), c["ts"])
+        k = day_start + timedelta(minutes=int((c["ts"] - day_start).total_seconds() // 60) // minutes * minutes)
+        if out and out[-1]["ts"] == k:
+            b = out[-1]
+            b["high"] = max(b["high"], c["high"]); b["low"] = min(b["low"], c["low"])
+            b["close"] = c["close"]; b["volume"] += c["volume"]
+        else:
+            out.append({**c, "ts": k})
+    return out
+
+
+def _oi(n):
+    n = n or 0
+    return f"{n / 1e5:.2f}L" if n >= 1e5 else f"{n / 1e3:.1f}k" if n >= 1e3 else f"{n:.0f}"
+
+
+def _print_candles(title, rows, n, forming_last):
+    print(f"{title}   time   open   high    low  close    vol")
+    for c in rows[-n:]:
+        flag = "  (forming)" if forming_last and c is rows[-1] else ""
+        print(f"   {c['ts']:%d %H:%M}  {c['open']:.0f}  {c['high']:.0f}  {c['low']:.0f}  {c['close']:.0f}  {c['volume']:>5}{flag}")
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("words", nargs="*", help="instrument alias (default crude); other words ignored")
-    ap.add_argument("--strikes", type=int, default=2, help="strikes each side of ATM")
+    ap.add_argument("--strikes", type=int, default=2, help="strikes each side of ATM in the price table")
     ap.add_argument("--mini", action="store_true", help="same as 'crudem'")
-    ap.add_argument("--candles", type=int, default=12)
+    ap.add_argument("--candles", type=int, default=12, help="5m candles to print")
     ap.add_argument("--no-guard", action="store_true", help="skip the day-guard line")
     a, _ = ap.parse_known_args()
 
@@ -214,29 +244,31 @@ def main():
 
     angel, _ = connect()
 
-    # 1) candles: from a few days back so EMA20 and the previous session are available at the open
+    # 1) one candle call: 5 days of 5m. 30m and 1H are built from it (no extra API calls)
     time.sleep(PAUSE)
     raw = angel.getCandleData({"exchange": EX, "symboltoken": fut["token"], "interval": "FIVE_MINUTE",
                                "fromdate": (now - timedelta(days=5)).strftime("%Y-%m-%d 09:00"),
                                "todate": now.strftime("%Y-%m-%d %H:%M")}).get("data") or []
     cs = [{"ts": datetime.fromisoformat(r[0]).replace(tzinfo=None), "open": r[1], "high": r[2],
            "low": r[3], "close": r[4], "volume": r[5]} for r in raw]
-    forming = bool(cs) and cs[-1]["ts"] + timedelta(minutes=5) > now
-    closed = cs[:-1] if forming else cs
-    e20 = ema([c["close"] for c in closed], 20)[-1] if len(closed) >= 20 else None
-    mom = momentum(closed, lookback=6) if closed else None
+    tf = {}
+    for label, mins in (("1H", 60), ("30m", 30), ("5m", 5)):
+        rows = cs if mins == 5 else resample(cs, mins)
+        forming = bool(rows) and rows[-1]["ts"] + timedelta(minutes=mins) > now
+        closed = rows[:-1] if forming else rows
+        e = ema([c["close"] for c in closed], 20)[-1] if len(closed) >= 20 else None
+        tf[label] = {"rows": rows, "forming": forming, "closed": closed, "ema": e,
+                     "mom": momentum(closed, lookback=6) if len(closed) >= 8 else None}
     sessions = sorted({c["ts"].date() for c in cs})
     cur_day = sessions[-1] if sessions else now.date()
     prev_day = sessions[-2] if len(sessions) > 1 else None
     prev = [c for c in cs if c["ts"].date() == prev_day] if prev_day else []
-    today_c = [c for c in cs if c["ts"].date() == cur_day]
     rough = cs[-1]["close"] if cs else None
 
-    # 2) one batched quote: future (+ near future, spot) + a strike window wide enough to re-centre on
+    # 2) one batched quote: future (+ near future, spot) + a wide strike window (prices, OI, volume)
     strikes = sorted({r["strike"] for r in opts})
     extra = [near_fut["token"]] if near_fut["token"] != fut["token"] else []
-    per_side = max(a.strikes + 4, 1)
-    per_side = min(per_side, (MAX_QUOTE_TOKENS - 2 - len(extra)) // 4)
+    per_side = min(max(a.strikes, 8), (MAX_QUOTE_TOKENS - 2 - len(extra)) // 4)
     window = []
     if rough and strikes:
         i = strikes.index(min(strikes, key=lambda s: abs(s - rough)))
@@ -277,77 +309,84 @@ def main():
     # ── output ──
     d = f.get("depth", {})
     bid = (d.get("buy") or [{}])[0].get("price"); ask = (d.get("sell") or [{}])[0].get("price")
+    lot = opts[0]["lot"] if opts else fut["lot"]
+    e5 = tf["5m"]["ema"]
     print(f"[{inst[0]} · {EX}]  token {fut['token']}")
     print(f"{now:%H:%M:%S}  {fut['symbol']}  LTP {f.get('ltp')}  bid/ask {bid}/{ask}  "
-          f"day H {f.get('high')} L {f.get('low')}  5m EMA20 {round(e20, 1) if e20 else '—'} (closed candles)")
+          f"day H {f.get('high')} L {f.get('low')}  5m EMA20 {round(e5, 1) if e5 else '—'}")
 
-    # contracts and expiries
-    lot = opts[0]["lot"] if opts else fut["lot"]
+    # contracts: one line, plus one short line per warning
     line = f"Contracts: fut {fut['expiry']} ({_when(fut['expiry'], now)})"
     if exp:
         line += f" · options {exp} ({_when(exp, now)}, lot {lot})"
-        line += " · options are priced on this fut" if EX == "MCX" else " · options settle to spot"
-    print(line)
     if spot and s_ltp:
-        prem = (f.get("ltp") or 0) - s_ltp
-        print(f"    Spot {spot['symbol']} {s_ltp}  (fut premium {prem:+.1f}). ATM is centred on spot, not the fut.")
-    notes = []
+        line += f" · spot {s_ltp} (fut {(f.get('ltp') or 0) - s_ltp:+.0f})"
+    print(line)
     if near_fut["token"] != fut["token"]:
         nq = q.get(near_fut["token"], {}).get("ltp")
-        why = ("its options already expired; levels from it don't apply to these options" if EX == "MCX"
-               else "rolled to next month on expiry day")
-        notes.append(f"{near_fut['symbol']} ({nq}) expires {_when(near_fut['expiry'], now)}: not used, {why}. "
-                     f"Spread {(f.get('ltp') or 0) - (nq or 0):+.0f}")
+        print(f"    ⚠️ {near_fut['symbol']} {nq} expires {_when(near_fut['expiry'], now)}. Not used (different price).")
     if exp and days_to(exp, now) <= 1:
-        notes.append(f"Options expire {_when(exp, now)} (close {market_close(EX, _expiry(exp))}): fast time decay"
-                     + (f"; next expiry {ctx['next_exp']}" if ctx["next_exp"] else ""))
+        print(f"    ⚠️ Options expire {_when(exp, now)}: fast time decay"
+              + (f". Next expiry {ctx['next_exp']}" if ctx["next_exp"] else ""))
     if days_to(fut["expiry"], now) <= 3:
-        notes.append(f"{fut['symbol']} expires {_when(fut['expiry'], now)}: don't carry it past expiry")
+        print(f"    ⚠️ {fut['symbol']} expires {_when(fut['expiry'], now)}")
     if syn and step and abs(syn - ref) > step:
-        notes.append(f"Options imply {syn:.0f} but the reference is {ref}: {syn - ref:+.0f} pts. Check the contract")
-    if forming is False and cs and (now - cs[-1]["ts"]) > timedelta(minutes=15):
-        notes.append(f"Last candle {cs[-1]['ts']:%d %b %H:%M}: market closed or data delayed")
-    for n in notes:
-        print(f"    ⚠️ {n}")
-    sess = f"Session: {EX} closes {market_close(EX)} IST"
-    if EX == "MCX":
-        sess += f" ({'US summer' if us_dst(now.date()) else 'US winter'} time)"
-        if inst[0].startswith("CRUDE"):
-            wd = now.weekday()
-            sess += f" · EIA report Wed {eia_time()} IST" + (" (TODAY)" if wd == 2 else "")
-    print(sess)
+        print(f"    ⚠️ Options imply {syn:.0f}, {syn - ref:+.0f} from {ref}. Check the contract")
+    if cs and not tf["5m"]["forming"] and (now - cs[-1]["ts"]) > timedelta(minutes=15):
+        print(f"    ⚠️ Last candle {cs[-1]['ts']:%d %b %H:%M}: market closed or data delayed")
+    sess = f"Session: closes {market_close(EX)} IST"
+    if EX == "MCX" and inst[0].startswith("CRUDE"):
+        sess += f" · EIA Wed {eia_time()} IST" + (" (TODAY)" if now.weekday() == 2 else "")
     if prev:
-        print(f"Prev session {prev_day:%d %b}: H {max(c['high'] for c in prev):.0f}  "
-              f"L {min(c['low'] for c in prev):.0f}  C {prev[-1]['close']:.0f}")
+        sess += (f" · prev day {prev_day:%d %b}: H {max(c['high'] for c in prev):.0f} "
+                 f"L {min(c['low'] for c in prev):.0f} C {prev[-1]['close']:.0f}")
+    print(sess)
 
-    label = "5m" if cur_day == now.date() else f"5m ({cur_day:%d %b}, last session)"
-    print(f"{label}  time   open   high    low  close  vol")
-    for c in today_c[-a.candles:]:
-        flag = "  (forming)" if forming and c is cs[-1] else ""
-        print(f"    {c['ts']:%H:%M}  {c['open']:.0f}  {c['high']:.0f}  {c['low']:.0f}  {c['close']:.0f}  {c['volume']}{flag}")
-    if mom:
-        if "score" in mom:
-            print(f"Trend (closed 5m, last 6): {mom['verdict']} (score {mom['score']:+d}) · "
-                  + " · ".join(mom["reasons"]))
-        else:
-            print(f"Trend: {mom['verdict']}")
+    # trend by timeframe (closed candles only)
+    print("Trend      verdict              close   EMA20   vs EMA   structure")
+    for label in ("1H", "30m", "5m"):
+        t = tf[label]; m = t["mom"]
+        if not m or "score" not in m:
+            print(f"   {label:<4}    not enough candles"); continue
+        dist = m["last_close"] - m["ema20"]
+        print(f"   {label:<4}    {m['verdict']:<18} {m['last_close']:>7.0f} {m['ema20']:>7.0f}   {dist:>+6.0f}   {m['reasons'][0]}")
 
+    _print_candles("1H ", tf["1H"]["rows"], 8, tf["1H"]["forming"])
+    _print_candles("30m", tf["30m"]["rows"], 10, tf["30m"]["forming"])
+    today_5m = [c for c in cs if c["ts"].date() == cur_day]
+    _print_candles("5m ", today_5m, a.candles, tf["5m"]["forming"])
+
+    # options: price table around ATM, then OI over the wide window
     if atm is not None:
-        how = (f"options imply {syn:.0f} (from {syn_k:.0f} CE/PE)" if syn else "no two-sided quotes, centred on "
-               + ("spot" if s_ltp else "fut"))
-        print(f"Options {exp} (lot {lot}), ATM {atm:.0f} · {how}")
+        how = f"options imply {syn:.0f}" if syn else ("centred on spot" if s_ltp else "centred on fut")
+        print(f"Options {exp} (lot {lot}), ATM {atm:.0f} ({how})")
         ce, pe = chain.get((atm, "CE")), chain.get((atm, "PE"))
         print(f"    ATM symbols: {ce['symbol'] if ce else '—'} ({ce['token'] if ce else ''}) · "
               f"{pe['symbol'] if pe else '—'} ({pe['token'] if pe else ''})")
-        print("    strike      CE ltp (bid/ask)       PE ltp (bid/ask)")
+        print("    strike   CE ltp (bid/ask)          OI   |  PE ltp (bid/ask)          OI")
         for s in near:
             cells = []
             for side in ("CE", "PE"):
                 r = chain.get((s, side)); x = q.get(r["token"], {}) if r else {}
                 dd = x.get("depth", {})
-                cells.append(f"{x.get('ltp', '—'):>7} ({(dd.get('buy') or [{}])[0].get('price', '—')}/"
-                             f"{(dd.get('sell') or [{}])[0].get('price', '—')})")
-            print(f"    {s:>6.0f}{' *' if s == atm else '  '}  {cells[0]:<22} {cells[1]}")
+                px = f"{x.get('ltp', '—')} ({(dd.get('buy') or [{}])[0].get('price', '—')}/{(dd.get('sell') or [{}])[0].get('price', '—')})"
+                cells.append(f"{px:<24} {_oi(x.get('opnInterest')):>6}")
+            print(f"    {s:>6.0f}{'*' if s == atm else ' '}  {cells[0]}   |  {cells[1]}")
+        oi = {(k, side): q.get(r["token"], {}).get("opnInterest") or 0 for (k, side), r in chain.items()}
+        vol = {(k, side): q.get(r["token"], {}).get("tradeVolume") or 0 for (k, side), r in chain.items()}
+        ce_oi = {k: v for (k, sd), v in oi.items() if sd == "CE"}
+        pe_oi = {k: v for (k, sd), v in oi.items() if sd == "PE"}
+        if sum(ce_oi.values()) and sum(pe_oi.values()):
+            above = {k: v for k, v in ce_oi.items() if k >= centre} or ce_oi
+            below = {k: v for k, v in pe_oi.items() if k <= centre} or pe_oi
+            r1 = sorted(above, key=above.get, reverse=True)[:2]
+            s1 = sorted(below, key=below.get, reverse=True)[:2]
+            pcr = sum(pe_oi.values()) / sum(ce_oi.values())
+            busiest = max(vol, key=vol.get)
+            print(f"OI ({window[0]:.0f}–{window[-1]:.0f}): resistance (CE OI) "
+                  + ", ".join(f"{k:.0f} {_oi(ce_oi[k])}" for k in r1)
+                  + " · support (PE OI) " + ", ".join(f"{k:.0f} {_oi(pe_oi[k])}" for k in s1)
+                  + f" · PCR {pcr:.2f} · most traded {busiest[0]:.0f}{busiest[1]} ({vol[busiest]:,})")
     else:
         print("Options: —")
 
